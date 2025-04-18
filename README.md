@@ -1,0 +1,2 @@
+# exhamming
+Extended Hamming code
