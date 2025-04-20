@@ -283,23 +283,25 @@ struct HammingExtended
    CodeWord< T, M > Encode( const CodeWord< T, M >& a )
    {
       CodeWord< T, M > result;
-      auto& parity_check = mIsSystematic ? mHsys : mH;
-      if (mIsSystematic) {
-         for( const auto& el : a )
+      for( const auto& el : a )
+      {
+         assert( el.mStatus == SymbolStatus::Normal );
+         result.push_back( el );
+      }
+      for( int i = 0; i < R; ++i )
+      {
+         CodeElement< T, M > element{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
+         for( int k = 0; k < K; ++k )
          {
-            assert( el.mStatus == SymbolStatus::Normal );
-            result.push_back( el );
+            if( mHsys.at( i ).at( k ) == 0 )
+               continue;
+            element = element + a.at( k );
          }
-         for( int i = 0; i < R; ++i )
-         {
-            CodeElement< T, M > element{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
-            for( int k = 0; k < K; ++k )
-            {
-               if( parity_check.at( i ).at( k ) == 0 )
-                  continue;
-               element = element + a.at( k );
-            }
-            result.push_back( element );
+         result.push_back( element );
+      }
+      if (!mIsSystematic) {
+         for (const auto& [a, b] : mSwaps) {
+            std::swap( result[ a ], result[ b ] );
          }
       }
       return result;
@@ -329,6 +331,7 @@ struct HammingExtended
     */
    bool Decode( CodeWord< T, M >& v )
    {
+      assert(v.size() == N);
       auto& parity_check = mIsSystematic ? mHsys : mH;
       // Определяем индексы стертых символов.
       std::vector< int > ids;
@@ -408,7 +411,22 @@ struct HammingExtended
          }
          v[ idx ] = recovered;
       }
+      if (!mIsSystematic) {
+         for (const auto& [a, b] : mSwaps) {
+            std::swap( v[ a ], v[ b ] );
+         }
+      }
+      while (v.size() > K) {
+         v.pop_back();
+      }
       return true;
+   }
+
+   /**
+    * Включить/выключить режим систематического кодирования. 
+    */
+   void SwitchToSystematic(bool is_systematic) {
+      mIsSystematic = is_systematic;
    }
 
    bool mIsSystematic = true;

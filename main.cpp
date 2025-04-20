@@ -9,6 +9,8 @@ static void TestHamming()
    constexpr int R = 5; // Количество проверочных кодовых символов.
    constexpr int M = 4; // Количество внутренних символов на один кодовый символ (векторность).
    HammingExtended< R, M, u8 > code;
+   code.SwitchToSystematic(true); // Cистематический код.
+   // code.SwitchToSystematic(false); // Несистематический код.
    std::cout << "K: " << code.K << ", N: " << code.N << '\n';    
    show_matrix(code.mH, "Parity check matrix H:");
    show_matrix(code.mHsys, "Parity check matrix in systematic form H:");
@@ -34,8 +36,8 @@ static void TestHamming()
    v[ 12 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    // Декодирование (восстановление стертых символов).
    const auto decode_is_ok = code.Decode( v );
-   const bool recover_is_ok = v == s;
-   show_codeword(v, code, "Recovered code word");  
+   const bool recover_is_ok = v == a;
+   show_codeword(v, code, "Decoded symbols:");  
    std::cout << "Decode is : " << (decode_is_ok ? "Ok\n" : "Failed\n");
    std::cout << "Recover is : " << (recover_is_ok ? "Ok\n" : "Failed\n");
    std::cout << '\n';
