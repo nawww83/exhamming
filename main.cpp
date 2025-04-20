@@ -10,7 +10,8 @@ static void TestHamming()
    constexpr int M = 4; // Количество внутренних символов на один кодовый символ (векторность).
    HammingExtended< R, M, u8 > code;
    std::cout << "K: " << code.K << ", N: " << code.N << '\n';    
-   show_matrix(code.mH, "H in systematic form:");
+   show_matrix(code.mH, "Parity check matrix H:");
+   show_matrix(code.mHsys, "Parity check matrix in systematic form H:");
    // Формирование некоторого информационного вектора.
    CodeWord< u8, M > a( code.K, { .mStatus = SymbolStatus::Normal, .mSymbol = {} } );
    for( u8 i = 0; auto& el : a )
