@@ -6,7 +6,8 @@
 
 #include <iostream> // std::cout
 #include <cassert>  // assert
-#include <utility> // std::pair
+#include <utility>  // std::pair
+#include <tuple>    // std::tie, std::ignore
 #include <array>    // std::array
 #include <vector>   // std::vector
 #include <string>   // std::string
@@ -22,13 +23,13 @@ using Matrix = Vector< Vector< T > >;
 
 template <typename T>
 inline void show_matrix(const Matrix<T>& M, const std::string& title) {
-    std::cout << title << '\n';
-    for (const auto& row : M) {
-        for (const auto& el : row) {
-            std::cout << el << ", ";
-        }
-        std::cout << '\n';
-    }
+   std::cout << title << '\n';
+   for (const auto& row : M) {
+      for (const auto& el : row)
+         std::cout << el << ", ";
+      std::cout << '\n';
+   }
+   std::cout << std::flush;
 }
 
 /**
@@ -63,20 +64,18 @@ struct CodeElement
    CodeElement operator+( const CodeElement& other ) const
    {
       if( ( mStatus == SymbolStatus::Erased ) || ( other.mStatus == SymbolStatus::Erased ) )
-      {
          return { SymbolStatus::Erased, {} };
-      }
       if( ( mStatus == SymbolStatus::Uninitialized ) || ( other.mStatus == SymbolStatus::Uninitialized ) )
-      {
          return { SymbolStatus::Uninitialized, {} };
-      }
       CodeElement result{ SymbolStatus::Normal, {} };
       for( int i = 0; i < N; ++i )
-      {
          result.mSymbol[ i ] = mSymbol[ i ] ^ other.mSymbol[ i ];
-      }
       return result;
    }
+
+   /**
+    * 
+    */
    bool operator==( const CodeElement< T, N >& other ) const = default;
 };
 
@@ -189,20 +188,20 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
    const int N = H.at( 0 ).size();
    auto result = H;
    std::vector<std::pair<int, int>> swaps;
+   std::pair<int, int> swaped_indexes;
    // Формирование верхней треугольной матрицы (справа).
    for( int i = R - 1; i >= 0; --i )
    {
       int idx = static_cast< int >( columns.size() ) < R ? -1 : columns.at( i );
       bool has_lead = FormLeadBySum( i, result, idx );
       if( !has_lead ) {
-         auto [has_lead_, swaped_indexes] = FormLeadBySwap( i, result, idx, columns );
-         has_lead = has_lead_;
+         std::tie(has_lead, swaped_indexes) = FormLeadBySwap( i, result, idx, columns );
          swaps.push_back(swaped_indexes);
       }
       is_ok &= has_lead;
       for( int j = i - 1; j >= 0; --j )
       {
-         int idx = static_cast< int >( columns.size() ) < R ? N + i - R : columns.at( i );
+         int idx = std::cmp_not_equal(columns.size(), R) ? N + i - R : columns.at( i );
          if( auto reference = result.at( j ).at( idx ); reference == 0 )
             continue;
          for( int k = 0; k < N; ++k )
@@ -214,7 +213,7 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
    {
       for( int j = i + 1; j < R; ++j )
       {
-         int idx = static_cast< int >( columns.size() ) < R ? N + i - R : columns.at( i );
+         int idx = std::cmp_not_equal(columns.size(), R) ? N + i - R : columns.at( i );
          if( auto reference = result.at( j ).at( idx ); reference == 0 )
             continue;
          for( int k = 0; k < N; ++k )
@@ -271,9 +270,7 @@ struct HammingExtended
          deg /= 2;
       }
       bool is_ok;
-      auto [Hsys_, swaps_] = MakeParityMatrixSystematic( mH, is_ok );
-      mSwaps = swaps_;
-      mHsys = Hsys_;
+      std::tie(mHsys, mSwaps) = MakeParityMatrixSystematic( mH, is_ok );
       assert(is_ok);
    }
 
@@ -318,8 +315,9 @@ struct HammingExtended
       {
          CodeElement< T, M > element{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
          for( int k = 0; k < N; ++k ) {
-            if (parity_check.at(i).at(k) != 0)
-               element = element + v.at( k );
+            if (parity_check.at(i).at(k) == 0)
+               continue;
+            element = element + v.at( k );
          }
          result.push_back( element );
       }
@@ -396,7 +394,7 @@ struct HammingExtended
          selected.push_back( parity_check.at( row ) );
       // Делаем подматрицу систематической для прямого решения СЛАУ - восстановления стертых символов.
       bool is_ok;
-      auto [selected_sys, _] = MakeParityMatrixSystematic( selected, is_ok, ids );
+      std::tie(selected, std::ignore) = MakeParityMatrixSystematic( selected, is_ok, ids );
       // Восстанавливаем стертые символы.
       for( int i = 0; i < erased; ++i )
       {
@@ -406,7 +404,7 @@ struct HammingExtended
          {
             if( k == idx )
                continue;
-            if( selected_sys.at( i ).at( k ) != 0 )
+            if( selected.at( i ).at( k ) != 0 )
                recovered = recovered + v.at( k );
          }
          v[ idx ] = recovered;
@@ -449,29 +447,27 @@ struct HammingExtended
 
 template <typename T, int M>
 inline void show_codeword(const CodeWord<T, M>& cword, const auto& code, const std::string& title) {
-    std::cout << title << '\n';
-    for (int k = 0; const auto& el1 : cword) {
-        for (const auto& el2 : el1.mSymbol) {
-            std::cout << int(el2) << ", ";
-        }
-        std::cout << '\n';
-        if (k == (code.K - 1)) {
-            std::cout << "----------" << '\n';
-        }
-        k++;
-    }
-    std::cout << '\n';
+   std::cout << title << '\n';
+   for (int k = 0; const auto& el1 : cword) {
+      for (const auto& el2 : el1.mSymbol)
+         std::cout << int(el2) << ", ";
+      std::cout << '\n';
+      if (k == (code.K - 1))
+         std::cout << "----------\n";
+      k++;
+   }
+   std::cout << std::endl;
 }
 
 template <typename T, int M>
 inline void show_cyndrome(const CodeWord<T, M>& c, const std::string& title) {
-    std::cout << title << '\n';
-    for (const auto& el1 : c) {
-        for (const auto& el2 : el1.mSymbol) {
-            std::cout << int(el2) << ", ";
-        }
-        std::cout << '\n';        
-    }    
+   std::cout << title << '\n';
+   for (const auto& el1 : c) {
+      for (const auto& el2 : el1.mSymbol)
+         std::cout << int(el2) << ", ";
+      std::cout << '\n';        
+   }
+   std::cout << std::flush;
 }
 
 } // namespace hamming
