@@ -192,7 +192,7 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
    // Формирование верхней треугольной матрицы (справа).
    for( int i = R - 1; i >= 0; --i )
    {
-      int idx = static_cast< int >( columns.size() ) < R ? -1 : columns.at( i );
+      const int idx = std::cmp_not_equal(columns.size(), R) ? -1 : columns.at( i );
       bool has_lead = FormLeadBySum( i, result, idx );
       if( !has_lead ) {
          std::tie(has_lead, swaped_indexes) = FormLeadBySwap( i, result, idx, columns );
