@@ -32,6 +32,24 @@ inline void show_matrix(const Matrix<T>& M, const std::string& title) {
    std::cout << std::flush;
 }
 
+template <typename T>
+inline void show_vector(const Vector<T>& v, const std::string& title) {
+   std::cout << title << '\n';
+   for (const auto& el : v) {
+      std::cout << el << ", ";
+   }
+   std::cout << std::endl;
+}
+
+template <typename T>
+inline void show_vector(const Vector<std::pair<T, T>>& v, const std::string& title) {
+   std::cout << title << '\n';
+   for (const auto& [a, b] : v) {
+      std::cout << "(" << a << ": " << b << "), ";
+   }
+   std::cout << std::endl;
+}
+
 /**
  * Статус принятого (канального) символа.
  */
@@ -90,7 +108,7 @@ using CodeWord = std::vector< CodeElement< T, N > >;
  * Таким образом у проверочной матрицы справа формируется единичная матрица.
  */
 template< typename T >
-inline bool FormLeadBySum( int i, Matrix< T >& H, int column_idx = -1 )
+inline bool FormLeadBySum( int i, Matrix< T >& H, std::vector< int >& correspondance, int column_idx = -1 )
 {
    int R = H.size();
    int N = H.at( 0 ).size();
@@ -116,6 +134,8 @@ inline bool FormLeadBySum( int i, Matrix< T >& H, int column_idx = -1 )
    {
       H[ i ][ k ] ^= H.at( idx ).at( k );
    }
+   if (!correspondance.empty())
+      correspondance[i] ^= correspondance.at(idx);
    return true;
 }
 
@@ -180,12 +200,12 @@ inline std::pair<bool, std::pair<int, int>> FormLeadBySwap( int i, Matrix< T >& 
  * @param columns Столбцы, которые будут базисными (по умочанию - справа).
  */
 template< typename T >
-inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrixSystematic( const Matrix< T >& H, bool& is_ok,
+inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrixSystematic( const Matrix< T >& H, std::vector< int >& correspondance, bool& is_ok,
                                                const std::vector< int >& columns = {} )
 {
    is_ok = true; // Признак успешности преобразования.
    const int R = H.size();
-   const int N = H.at( 0 ).size();
+   const int N = H.empty() ? 0 : H.at( 0 ).size();
    auto result = H;
    std::vector<std::pair<int, int>> swaps;
    std::pair<int, int> swaped_indexes;
@@ -193,7 +213,7 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
    for( int i = R - 1; i >= 0; --i )
    {
       const int idx = std::cmp_not_equal(columns.size(), R) ? -1 : columns.at( i );
-      bool has_lead = FormLeadBySum( i, result, idx );
+      bool has_lead = FormLeadBySum( i, result, correspondance, idx );
       if( !has_lead ) {
          std::tie(has_lead, swaped_indexes) = FormLeadBySwap( i, result, idx, columns );
          swaps.push_back(swaped_indexes);
@@ -206,6 +226,8 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
             continue;
          for( int k = 0; k < N; ++k )
             result[ j ][ k ] ^= result[ i ][ k ];
+         if (!correspondance.empty())
+            correspondance[j] ^= correspondance.at(i);
       }
    }
    // Формирование нижней треугольной матрицы (справа).
@@ -218,6 +240,8 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
             continue;
          for( int k = 0; k < N; ++k )
             result[ j ][ k ] ^= result[ i ][ k ];
+         if (!correspondance.empty())
+            correspondance[j] ^= correspondance.at(i);
       }
    }
    return std::make_pair(result, swaps);
@@ -270,7 +294,8 @@ struct HammingExtended
          deg /= 2;
       }
       bool is_ok;
-      std::tie(mHsys, mSwaps) = MakeParityMatrixSystematic( mH, is_ok );
+      Vector<int> correspondance;
+      std::tie(mHsys, mSwaps) = MakeParityMatrixSystematic( mH, correspondance, is_ok );
       assert(is_ok);
    }
 
@@ -350,7 +375,7 @@ struct HammingExtended
             selected[ j ][ i++ ] = parity_check.at( j ).at( idx );
       }
       // Упрощаем выбранную матрицу: максимально минимизируем количество единиц в каждой строке.
-      // O(R^2) ... O(R^3)
+      // O(R^2).
       Matrix< int > selected_m = selected;
       Vector< int > row( erased, 0 );
       for( int i = 0; i < R; ++i )
@@ -394,7 +419,8 @@ struct HammingExtended
          selected.push_back( parity_check.at( row ) );
       // Делаем подматрицу систематической для прямого решения СЛАУ - восстановления стертых символов.
       bool is_ok;
-      std::tie(selected, std::ignore) = MakeParityMatrixSystematic( selected, is_ok, ids );
+      Vector<int> correspondance;
+      std::tie(selected, std::ignore) = MakeParityMatrixSystematic( selected, correspondance, is_ok, ids );
       // Восстанавливаем стертые символы.
       for( int i = 0; i < erased; ++i )
       {
