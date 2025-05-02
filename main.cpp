@@ -98,6 +98,7 @@ static void TestHamming()
    v[ 5 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    v[ 7 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    v[ 12 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
+   // v[ 2 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    // Декодирование (восстановление стертых символов).
    const auto decode_is_ok = code.Decode( v );
    const bool recover_is_ok = v == a;

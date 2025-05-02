@@ -110,6 +110,7 @@ using CodeWord = std::vector< CodeElement< T, N > >;
 template< typename T >
 inline bool FormLeadBySum( int i, Matrix< T >& H, std::vector< int >& correspondance, int column_idx = -1 )
 {
+   assert(!H.empty());
    int R = H.size();
    int N = H.at( 0 ).size();
    const int column = column_idx == -1 ? N - R + i : column_idx;
@@ -146,6 +147,7 @@ inline bool FormLeadBySum( int i, Matrix< T >& H, std::vector< int >& correspond
 template< typename T >
 inline std::pair<bool, std::pair<int, int>> FormLeadBySwap( int i, Matrix< T >& H, int column_idx = -1, const std::vector< int >& columns = {} )
 {
+   assert(!H.empty());
    int R = H.size();
    int N = H.at( 0 ).size();
    const int column = column_idx == -1 ? N - R + i : column_idx;
@@ -209,6 +211,9 @@ inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrix
    auto result = H;
    std::vector<std::pair<int, int>> swaps;
    std::pair<int, int> swaped_indexes;
+   if (H.empty()) {
+      return std::make_pair(result, swaps);
+   }
    // Формирование верхней треугольной матрицы (справа).
    for( int i = R - 1; i >= 0; --i )
    {
@@ -421,6 +426,7 @@ struct HammingExtended
       bool is_ok;
       Vector<int> correspondance;
       std::tie(selected, std::ignore) = MakeParityMatrixSystematic( selected, correspondance, is_ok, ids );
+      assert( selected.size() == erased );
       // Восстанавливаем стертые символы.
       for( int i = 0; i < erased; ++i )
       {
@@ -440,9 +446,8 @@ struct HammingExtended
             std::swap( v[ a ], v[ b ] );
          }
       }
-      while (v.size() > K) {
+      while (v.size() > K)
          v.pop_back();
-      }
       return true;
    }
 
