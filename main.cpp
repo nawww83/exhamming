@@ -93,12 +93,12 @@ static void TestHamming()
    show_cyndrome(c, "Cyndrome of the codeword:"); 
    // Стирание нескольких символов в канале. Кодовое расстояние кода равно 4,
    // кратность стирания q <= d - 1 = 3. Значит все стирания из не более трех 
-   // символов будут успешно восстановлены.
+   // символов будут успешно восстановлены. Но иногда восстанавливает и более высокие кратности.
    auto v = s;
    v[ 5 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    v[ 7 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    v[ 12 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
-   // v[ 2 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
+   v[ 0 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    // Декодирование (восстановление стертых символов).
    const auto decode_is_ok = code.Decode( v );
    const bool recover_is_ok = v == a;

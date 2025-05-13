@@ -369,8 +369,6 @@ struct HammingExtended
             ids.push_back( i );
       }
       const int erased = ids.size();
-      if( erased >= D )
-         return false;
       // Выбираем часть проверочной матрицы - подматрицу.
       Matrix< int > selected;
       for( int j = 0; j < R; ++j )
@@ -417,7 +415,7 @@ struct HammingExtended
             good_rows.push_back( j );
          }
       }
-      assert( good_rows.size() == erased );
+      // assert( good_rows.size() == erased );
       // Формируем строки из исходной матрицы в соответствие с индексами "хороших" строк.
       selected.clear();
       for( auto row : good_rows )
@@ -426,9 +424,9 @@ struct HammingExtended
       bool is_ok;
       Vector<int> correspondance;
       std::tie(selected, std::ignore) = MakeParityMatrixSystematic( selected, correspondance, is_ok, ids );
-      assert( selected.size() == erased );
+      // assert( selected.size() == erased );
       // Восстанавливаем стертые символы.
-      for( int i = 0; i < erased; ++i )
+      for( int i = 0; i < std::min(selected.size(), ids.size()); ++i )
       {
          CodeElement< T, M > recovered{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
          const int idx = ids.at( i );
