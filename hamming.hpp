@@ -7,8 +7,7 @@
  #include <iostream> // std::cout
  #include <cassert>  // assert
  #include <utility>  // std::pair
- #include <set>      // std::set
- #include <tuple>    // std::tie, std::ignore
+ #include <tuple>    // std::tie
  #include <array>    // std::array
  #include <vector>   // std::vector
  #include <string>   // std::string
@@ -229,6 +228,68 @@
     return std::make_pair(result, swaps);
  }
 
+void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int erased) {
+   [[maybe_unused]] int counter = 0;
+   const int R = parity_check.size();
+   assert(R > 0);
+   const int N = parity_check.at(0).size();
+   Vector< int > row( erased );
+   Vector< int > weights( R);
+   for (;;) { // Раунды: итерации.
+      counter++;
+      // std::cout << "Counter " << counter << std::endl;
+      bool no_modifications = true;
+      for( int i = 0; i < R; ++i )
+      {
+         int w = 0;
+         for( int k = 0; k < erased; ++k )
+            w += selected.at( i ).at( k ) != 0; // Вес оригинального слова.
+         weights[i] = w;
+         for( int j = i+1; j < R; ++j )
+         {
+            int weight = 0;
+            for( int k = 0; k < erased; ++k )
+            {
+               row[ k ] = selected.at( i ).at( k ) ^ selected.at( j ).at( k );
+               weight += row[ k ] != 0;
+            }
+            if( weight < weights.at(i) ) {
+               no_modifications = false;
+               selected[ i ] = row;
+               weights[i] = weight;
+               for( int k = 0; k < N; ++k )
+                  parity_check[ i ][ k ] ^= parity_check.at( j ).at( k );
+            }
+         }
+      }
+      for( int i = R-1; i >= 0; --i )
+      {
+         int w = 0;
+         for( int k = 0; k < erased; ++k )
+            w += selected.at( i ).at( k ) != 0; // Вес оригинального слова.
+         weights[i] = w;
+         for( int j = i-1; j >= 0; --j )
+         {
+            int weight = 0;
+            for( int k = 0; k < erased; ++k )
+            {
+               row[ k ] = selected.at( i ).at( k ) ^ selected.at( j ).at( k );
+               weight += row[ k ] != 0;
+            }
+            if( weight < weights.at(i) ) {
+               no_modifications = false;
+               selected[ i ] = row;
+               weights[i] = weight;
+               for( int k = 0; k < N; ++k )
+                  parity_check[ i ][ k ] ^= parity_check.at( j ).at( k );
+            }
+         }
+      }
+      if (no_modifications)
+         break;
+   }
+}
+
  template <typename T>
  inline constexpr T power2( int x )
  {
@@ -340,12 +401,12 @@
     bool Decode( CodeWord< T, M >& v, int& erased )
     {
        assert(v.size() == N && "Input size is wrong");
-       const auto& parity_check = mHsys;
        if (!mIsSystematic) {
           for (const auto& [a, b] : mSwaps) {
              std::swap( v[ a ], v[ b ] );
           }
        }
+      const auto& parity_check = mHsys;
        // Определяем индексы стертых символов.
        std::vector< int > ids;
        for( int i = 0; i < N; ++i )
@@ -363,109 +424,34 @@
              selected[ j ][ i++ ] = parity_check.at( j ).at( idx );
        }
       //  show_matrix(selected, "Selected columns:");
-       // Упрощаем выбранную матрицу: максимально минимизируем количество единиц в каждой строке.
-       // O(R^2).
-       Matrix< int > selected_m = selected;
-       selected = parity_check;
-       Vector< int > row( erased, 0 );
-       Vector< int > weights( R, -1 );
-       // Метод 1. Дубовый. Раундовый.
-      //  int counter = 0;
-      //  for (;;) { // Раунды: итерации.
-      //    counter++;
-      //    bool all_minimal_weights = true;
-      //    for( int i = 0; i < R; ++i )
-      //    {
-      //       int w = 0;
-      //       for( int k = 0; k < erased; ++k )
-      //       {
-      //          w += selected_m.at( i ).at( k ) != 0; // Вес оригинального слова.
-      //       }
-      //       if (weights.at(i) == -1) {
-      //          weights[i] = w;
-      //       }
-      //       for( int j = 0; j < R; ++j )
-      //       {
-      //          if( j == i )
-      //             continue;
-      //          int weight = 0;
-      //          int bad_condition = 0;
-      //          for( int k = 0; k < erased; ++k )
-      //          {
-      //             if ( selected_m.at( i ).at( k ) == 0 && selected_m.at( j ).at( k )) {
-      //                bad_condition = 1; // Ноль в оригинале станет ненулевым элементом.
-      //                break;
-      //             }
-      //             row[ k ] = selected_m.at( i ).at( k ) ^ selected_m.at( j ).at( k );
-      //             weight += row[ k ] != 0;
-      //          }
-      //          if( weight < weights.at(i) && !bad_condition ) {
-      //             selected_m[ i ] = row;
-      //             weights[i] = weight;
-      //             for( int k = 0; k < N; ++k )
-      //             {
-      //                selected[ i ][ k ] ^= selected.at( j ).at( k );
-      //             }
-      //          }
-      //       }
-      //    }
-      //    for (auto w : weights) {
-      //       all_minimal_weights &= (w <= 1);
-      //    }
-      //    if (all_minimal_weights || counter > erased) {
-      //       break;
-      //    }
-      //  }
-      //  show_matrix(selected_m, "Selected simplified:");
-      //  std::cout << "counter: " << counter << std::endl;
-       // Метод 2. Однопроходной (безраундовый).
-       for( int i = 0; i < R; ++i )
-       {
-          for( int j = 0; j < R; ++j )
-          {
-             if( j == i )
-                continue;
-             int weight_original = 0;
-             int weight = 0;
-             for( int k = 0; k < erased; ++k )
-             {
-                row[ k ] = selected_m.at( i ).at( k ) ^ selected_m.at( j ).at( k );
-                weight_original += selected_m.at( i ).at( k ) != 0;
-                weight += row[ k ] != 0;
-             }
-             if( weight < weight_original ) {
-                selected_m[ i ] = row;
-                for( int k = 0; k < N; ++k )
-               {
-                  selected[ i ][ k ] ^= selected.at( j ).at( k );
-               }
-             }
-          }
-       }
-      //  show_matrix(selected_m, "Selected simplified:");
-       // Ищем базис - строки с единственной единицей ("хорошие" строки).
+       // Упрощаем подматрицу: минимизируем количество единиц в каждой строке.
+       // Параллельно модифицируем полную проверочную матрицу - ее рабочую копию.
+       // O(R^2...R^3).
+       Matrix<int> work_H = parity_check; // Рабочая копия проверочной матрицы.
+      //  show_matrix(work_H, "Work H:");
+       SimplifyManyOfPass(work_H, selected, erased);
+      //  show_matrix(selected, "Selected simplified:");
+      //  show_matrix(work_H, "Simplified work H:");
+       // Ищем базис по стертым столбцам - строки с единственной единицей - "хорошие" строки.
        std::vector< int > good_rows;
-       std::set<std::vector<int>> uniques;
        for( int j = 0; j < R; ++j )
        {
          if (good_rows.size() == erased)
             break;
           int weight = 0;
           for( int k = 0; k < erased; ++k )
-             weight += selected_m.at( j ).at( k ) != 0;
-          if( weight == 1 && !uniques.contains(selected_m.at( j )) ) {
-             good_rows.push_back( j );
-             uniques.insert(selected_m.at( j ));
-          }
+            weight += selected.at( j ).at( k ) != 0;
+            if( weight == 1 ) {
+               good_rows.push_back( j );
+            }
        }
-      //  show_matrix(selected, "Selected 1:");
        // Восстанавливаем стертые символы.
-       for( const auto row : good_rows )
+       for( const auto& row : good_rows )
        {
          // std::cout << "i: " << i << ", M: " << M << ", v size: " << v.size() << std::endl;
           CodeElement< T, M > recovered{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
           int where_unit = -1;
-            for (int k = 0; const auto el : selected_m.at( row )) {
+            for (int k = 0; const auto& el : selected.at( row )) {
                if (el) {
                   where_unit = k;
                   break;
@@ -476,7 +462,7 @@
           {
              if( k == ids.at(where_unit) )
                 continue;
-             if( selected.at( row ).at( k ) != 0 ) {
+             if( work_H.at( row ).at( k ) != 0 ) {
                //  std::cout << "k: " << k << ", idx: " << idx << ", selected size: " << selected.size() << ", erased: " << erased << std::endl;
                 assert(v.at(k).mStatus == SymbolStatus::Normal);
                 recovered = recovered + v.at( k );
