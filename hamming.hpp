@@ -228,16 +228,23 @@
     return std::make_pair(result, swaps);
  }
 
-void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int erased) {
+ /**
+  * Упрощает проверочную матрицу parity_check, чтобы решить СЛАУ относительно неизвестных, 
+  * которые соответствуют столбцам selected из проверочной матрицы.
+  * O(R^2)
+  */
+void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int swap_direction) {
    [[maybe_unused]] int counter = 0;
    const int R = parity_check.size();
    assert(R > 0);
    const int N = parity_check.at(0).size();
+   assert(!selected.empty());
+   const int erased = selected.at(0).size();
+   assert(erased > 0);
    Vector< int > row( erased );
    Vector< int > weights( R);
-   for (;;) { // Раунды: итерации.
-      counter++;
-      // std::cout << "Counter " << counter << std::endl;
+   // Проход "сверху вниз".
+   auto up_down = [&]() -> bool {
       bool no_modifications = true;
       for( int i = 0; i < R; ++i )
       {
@@ -262,6 +269,11 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
             }
          }
       }
+      return no_modifications;
+   };
+   // Проход "снизу вверх".
+   auto down_up = [&]() -> bool {
+      bool no_modifications = true;
       for( int i = R-1; i >= 0; --i )
       {
          int w = 0;
@@ -285,7 +297,21 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
             }
          }
       }
-      if (no_modifications)
+      return no_modifications;
+   };
+   for (;;) { // Раунды: итерации.
+      counter++;
+      bool no_modifications_1;
+      bool no_modifications_2;
+      // std::cout << "Counter " << counter << std::endl;
+      if (swap_direction == 0) {
+         no_modifications_1 = up_down();
+         no_modifications_2 = down_up();
+      } else {
+         no_modifications_2 = down_up();
+         no_modifications_1 = up_down();
+      }
+      if (no_modifications_1 && no_modifications_2)
          break;
    }
 }
@@ -315,13 +341,23 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
      * Количество информационных кодовых символов.
      */
     int K = N - R;
+
+    /**
+     * Кодовое расстояние кода. По умолчанию - расстояние для расширенного кода Хэмминга.
+     */
+    int D = 4;
  
     /**
      * Конструктор. Заполняется проверочная матрица кода, если не передана внешняя матрица.
      * H - Внешняя несистематическая проверочная матрица. Для задания произвольного кода.
      */
-    explicit HammingExtended(const Matrix<int> H = {})
+    explicit HammingExtended(const Matrix<int> H = {}, int code_distance = -1)
     {
+      assert((!H.empty() && code_distance != -1) || (H.empty() && code_distance == -1));
+      if (code_distance != -1) {
+         D = code_distance;
+      }
+      assert(D <= (R + 1));
       if (H.empty()) {
          mH.clear();
          for( int i = 0; i < R; ++i )
@@ -341,6 +377,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
       }
       bool is_ok;
       std::tie(mHsys, mSwaps) = MakeParityMatrixSystematic( mH, is_ok );
+      mWorkH = mHsys;
       // show_matrix(mHsys, "Systematic:");
       assert(is_ok);
     }
@@ -406,7 +443,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
              std::swap( v[ a ], v[ b ] );
           }
        }
-      const auto& parity_check = mHsys;
+       auto& parity_check = mWorkH;
        // Определяем индексы стертых символов.
        std::vector< int > ids;
        for( int i = 0; i < N; ++i )
@@ -416,34 +453,49 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
        }
        erased = ids.size();
        // Выбираем часть проверочной матрицы - подматрицу.
-       Matrix< int > selected;
-       for( int j = 0; j < R; ++j )
-       {
-          selected.emplace_back( erased, 0 );
-          for( int i = 0; auto idx : ids )
-             selected[ j ][ i++ ] = parity_check.at( j ).at( idx );
-       }
-      //  show_matrix(selected, "Selected columns:");
+       auto select_erasure_submatrix = [this, &parity_check](std::vector< int >& ids) {
+          mErasureSubmatrix.clear();
+          const int erased = ids.size();
+         for( int j = 0; j < R; ++j )
+         {
+            mErasureSubmatrix.emplace_back( erased, 0 );
+            for( int i = 0; auto idx : ids )
+               mErasureSubmatrix[ j ][ i++ ] = parity_check.at( j ).at( idx );
+         }
+       };
+      select_erasure_submatrix(ids);
        // Упрощаем подматрицу: минимизируем количество единиц в каждой строке.
        // Параллельно модифицируем полную проверочную матрицу - ее рабочую копию.
-       // O(R^2...R^3).
-       Matrix<int> work_H = parity_check; // Рабочая копия проверочной матрицы.
-      //  show_matrix(work_H, "Work H:");
-       SimplifyManyOfPass(work_H, selected, erased);
-      //  show_matrix(selected, "Selected simplified:");
+       SimplifyManyOfPass(parity_check, mErasureSubmatrix, 0);
       //  show_matrix(work_H, "Simplified work H:");
        // Ищем базис по стертым столбцам - строки с единственной единицей - "хорошие" строки.
        std::vector< int > good_rows;
-       for( int j = 0; j < R; ++j )
-       {
-         if (good_rows.size() == erased)
-            break;
-          int weight = 0;
-          for( int k = 0; k < erased; ++k )
-            weight += selected.at( j ).at( k ) != 0;
+       auto select_good_rows = [this, &good_rows](int erased) -> int {
+         int bad_strategy = 0;
+         good_rows.clear();
+         for( int j = 0; j < R; ++j )
+         {
+            if (good_rows.size() == erased)
+               break;
+            int weight = 0;
+            for( int k = 0; k < erased; ++k ) {
+               weight += mErasureSubmatrix.at( j ).at( k ) != 0;
+            }
             if( weight == 1 ) {
                good_rows.push_back( j );
             }
+            if (weight > 1) {
+               bad_strategy = 1; // Выбрана неудачная стратегия упрощения матрицы.
+            }
+         }
+         return bad_strategy;
+       };
+       int bad_strategy = select_good_rows(erased);
+       if (bad_strategy != 0) {
+         parity_check = mHsys;
+         select_erasure_submatrix(ids);
+         SimplifyManyOfPass(parity_check, mErasureSubmatrix, 1);
+         bad_strategy = select_good_rows(erased);
        }
        // Восстанавливаем стертые символы.
        for( const auto& row : good_rows )
@@ -451,7 +503,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
          // std::cout << "i: " << i << ", M: " << M << ", v size: " << v.size() << std::endl;
           CodeElement< T, M > recovered{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
           int where_unit = -1;
-            for (int k = 0; const auto& el : selected.at( row )) {
+            for (int k = 0; const auto& el : mErasureSubmatrix.at( row )) {
                if (el) {
                   where_unit = k;
                   break;
@@ -462,7 +514,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
           {
              if( k == ids.at(where_unit) )
                 continue;
-             if( work_H.at( row ).at( k ) != 0 ) {
+             if( parity_check.at( row ).at( k ) != 0 ) {
                //  std::cout << "k: " << k << ", idx: " << idx << ", selected size: " << selected.size() << ", erased: " << erased << std::endl;
                 assert(v.at(k).mStatus == SymbolStatus::Normal);
                 recovered = recovered + v.at( k );
@@ -470,6 +522,10 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
           }
          //  std::cout << "idx: " << idx << ", erased: " << erased << ", good rows: " << good_rows.size() << std::endl;
           v[ ids.at(where_unit) ] = recovered;
+       }
+       if (bad_strategy || (erased >= D)) {
+         parity_check = mHsys; // Потенциально неудачное восстановление стертых символов: 
+         // рабочую копию обновляем исходной проверочной матрицей.
        }
        while (v.size() > K)
           v.pop_back();
@@ -506,6 +562,16 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int er
      * Проверочная матрица систематического кода.
      */
     Matrix< int > mHsys;
+
+    /**
+     * Рабочая копия проверочной матрицы (систематической).
+     */
+    Matrix< int > mWorkH;
+
+    /**
+     * Выборочная матрица, соответствующая столбцам со стираниями.
+     */
+    Matrix< int > mErasureSubmatrix;
  };
  
  template <typename T, int M>
