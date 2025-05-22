@@ -20,6 +20,9 @@
  
  template< typename T >
  using Matrix = Vector< Vector< T > >;
+
+ template <typename T>
+ using Swaps = Vector<std::pair<T, T>>;
  
  template <typename T>
  inline void show_matrix(const Matrix<T>& M, const std::string& title) {
@@ -59,18 +62,24 @@
     std::array< T, N > mSymbol{};
     
     /**
-     * Оператор сложения. В данном случае побитовый XOR.
+     * Оператор сложения. В данном случае побитовый XOR. Умно комбинирует стертый символ с нестертым.
      */
     CodeElement operator+( const CodeElement& other ) const
     {
-       if( ( mStatus == SymbolStatus::Erased ) || ( other.mStatus == SymbolStatus::Erased ) )
-          return { SymbolStatus::Erased, {} };
-       if( ( mStatus == SymbolStatus::Uninitialized ) || ( other.mStatus == SymbolStatus::Uninitialized ) )
-          return { SymbolStatus::Uninitialized, {} };
-       CodeElement result{ SymbolStatus::Normal, {} };
-       for( int i = 0; i < N; ++i )
-          result.mSymbol[ i ] = mSymbol[ i ] ^ other.mSymbol[ i ];
-       return result;
+       if( ( mStatus == SymbolStatus::Normal ) && ( other.mStatus == SymbolStatus::Normal ) )
+       {
+         CodeElement result{ SymbolStatus::Normal, {} };
+         for( int i = 0; i < N; ++i )
+            result.mSymbol[ i ] = mSymbol[ i ] ^ other.mSymbol[ i ];
+         return result;
+       }
+       if( ( mStatus == SymbolStatus::Erased ) && ( other.mStatus == SymbolStatus::Normal ) )
+          return { SymbolStatus::Normal, other.mSymbol }; // 0 + x = 0; 1 + x = 1.
+       if( ( mStatus == SymbolStatus::Normal ) && ( other.mStatus == SymbolStatus::Erased ) )
+          return { SymbolStatus::Normal, mSymbol };
+       if( ( mStatus == SymbolStatus::Erased ) && ( other.mStatus == SymbolStatus::Erased ) )
+          return { SymbolStatus::Erased, {} }; // x + x = x.
+      return { SymbolStatus::Uninitialized, {} }; 
     }
  
     /**
@@ -182,18 +191,18 @@
   * @param columns Столбцы, которые будут базисными (по умочанию - справа).
   */
  template< typename T >
- inline std::pair<Matrix< T >, std::vector<std::pair<int, int>>> MakeParityMatrixSystematic( const Matrix< T >& H, bool& is_ok,
+ inline std::pair<Matrix< T >, Swaps<T>> MakeParityMatrixSystematic( const Matrix< T >& H, bool& is_ok,
                                                 const std::vector< int >& columns = {} )
  {
     is_ok = true; // Признак успешности преобразования.
     const int R = H.size();
     const int N = H.empty() ? 0 : H.at( 0 ).size();
     auto result = H;
-    std::vector<std::pair<int, int>> swaps;
+    Swaps<T> swaps;
     if (H.empty()) {
       return std::make_pair(result, swaps);
     }
-    std::pair<int, int> swaped_indexes;
+    std::pair<T, T> swaped_indexes;
     // Формирование верхней треугольной матрицы (справа).
     for( int i = R - 1; i >= 0; --i )
     {
@@ -231,13 +240,13 @@
  /**
   * Упрощает проверочную матрицу parity_check, чтобы решить СЛАУ относительно неизвестных, 
   * которые соответствуют столбцам selected из проверочной матрицы.
-  * O(R^2)
+  * O(R^2) * E, где E - количество стертых символов.
   */
-void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int swap_direction) {
+template< typename T, int M >
+void SimplifyManyOfPass(std::vector< CodeElement<T, M> >& free_column, Matrix<int>& selected, int swap_direction) {
    [[maybe_unused]] int counter = 0;
-   const int R = parity_check.size();
+   const int R = free_column.size();
    assert(R > 0);
-   const int N = parity_check.at(0).size();
    assert(!selected.empty());
    const int erased = selected.at(0).size();
    assert(erased > 0);
@@ -264,8 +273,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
                no_modifications = false;
                selected[ i ] = row;
                weights[i] = weight;
-               for( int k = 0; k < N; ++k )
-                  parity_check[ i ][ k ] ^= parity_check.at( j ).at( k );
+               free_column[ i ] = free_column.at(i) + free_column.at( j );
             }
          }
       }
@@ -292,8 +300,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
                no_modifications = false;
                selected[ i ] = row;
                weights[i] = weight;
-               for( int k = 0; k < N; ++k )
-                  parity_check[ i ][ k ] ^= parity_check.at( j ).at( k );
+               free_column[ i ] = free_column.at(i) + free_column.at( j );
             }
          }
       }
@@ -328,7 +335,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
   * M - количество внутренних символов в одном кодовом символе (векторность кода).
   * T - тип внутреннего символа. Для упрощения может быть шире типа реально используемых данных.
   */
- template< int R, int M, typename T >
+ template<typename T, int R, int M>
  struct HammingExtended
  {
     /**
@@ -371,13 +378,14 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
          }
       } else {
          assert(H.size() == R);
+         assert(R > 0);
          N = H.at(0).size();
+         assert(N > R);
          K = N - R;
          mH = H;
       }
       bool is_ok;
       std::tie(mHsys, mSwaps) = MakeParityMatrixSystematic( mH, is_ok );
-      mWorkH = mHsys;
       // show_matrix(mHsys, "Systematic:");
       assert(is_ok);
     }
@@ -435,7 +443,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
     /**
      * Декодировать принятый вектор в режиме стирания ошибки.
      */
-    bool Decode( CodeWord< T, M >& v, int& erased )
+    bool Decode( CodeWord< T, M >& v, int& erased, int& was_changed_strategy )
     {
        assert(v.size() == N && "Input size is wrong");
        if (!mIsSystematic) {
@@ -443,15 +451,29 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
              std::swap( v[ a ], v[ b ] );
           }
        }
-       auto& parity_check = mWorkH;
-       // Определяем индексы стертых символов.
+       const auto& parity_check = mHsys;
+       // Определяем индексы стертых символов и формируем столбец свободных членов.
        std::vector< int > ids;
+       mFreeColumn.clear();
+       for (int j = 0; j < R; ++j) {
+         mFreeColumn.push_back(CodeElement<T, M>{.mStatus = hamming::SymbolStatus::Normal, .mSymbol = {}});
+       }
        for( int i = 0; i < N; ++i )
        {
-          if( v.at( i ).mStatus == SymbolStatus::Erased )
-             ids.push_back( i );
+         if( v.at( i ).mStatus == SymbolStatus::Erased ) {
+            ids.push_back( i );
+         } else {
+            for( int j = 0; j < R; ++j )
+            {
+               if (parity_check.at(j).at(i))
+                  mFreeColumn[j] = mFreeColumn.at(j) + v.at(i);
+            }
+         }
        }
        erased = ids.size();
+       if (erased > R) {
+         return false;
+       }
        // Выбираем часть проверочной матрицы - подматрицу.
        auto select_erasure_submatrix = [this, &parity_check](std::vector< int >& ids) {
           mErasureSubmatrix.clear();
@@ -463,11 +485,11 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
                mErasureSubmatrix[ j ][ i++ ] = parity_check.at( j ).at( idx );
          }
        };
-      select_erasure_submatrix(ids);
+       select_erasure_submatrix(ids);
        // Упрощаем подматрицу: минимизируем количество единиц в каждой строке.
-       // Параллельно модифицируем полную проверочную матрицу - ее рабочую копию.
-       SimplifyManyOfPass(parity_check, mErasureSubmatrix, 0);
-      //  show_matrix(work_H, "Simplified work H:");
+       // Параллельно модифицируем столбец свободных членов.
+       auto free_column = mFreeColumn;
+       SimplifyManyOfPass(free_column, mErasureSubmatrix, 0);
        // Ищем базис по стертым столбцам - строки с единственной единицей - "хорошие" строки.
        std::vector< int > good_rows;
        auto select_good_rows = [this, &good_rows](int erased) -> int {
@@ -491,41 +513,33 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
          return bad_strategy;
        };
        int bad_strategy = select_good_rows(erased);
-       if (bad_strategy != 0) {
-         parity_check = mHsys;
+       was_changed_strategy = 0;
+       if (bad_strategy) { // Обычно для больших стираний: около D-1 и выше.
+         free_column = mFreeColumn;
          select_erasure_submatrix(ids);
-         SimplifyManyOfPass(parity_check, mErasureSubmatrix, 1);
+         was_changed_strategy = 1;
+         SimplifyManyOfPass(free_column, mErasureSubmatrix, 1); // Пробуем инвертированную стратегию.
          bad_strategy = select_good_rows(erased);
+         // std::cout << "Change direct. Strategy after is " << (bad_strategy ? "bad" : "good") << ", erased: " << erased << std::endl;
        }
        // Восстанавливаем стертые символы.
        for( const auto& row : good_rows )
        {
+         if (bad_strategy) { // Не нашли стратегию: считаем, что система однозначно не разрешима.
+            break;
+         }
          // std::cout << "i: " << i << ", M: " << M << ", v size: " << v.size() << std::endl;
           CodeElement< T, M > recovered{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
           int where_unit = -1;
-            for (int k = 0; const auto& el : mErasureSubmatrix.at( row )) {
-               if (el) {
-                  where_unit = k;
-                  break;
-               }
-               k++;
+         for (int k = 0; const auto& el : mErasureSubmatrix.at( row )) {
+            if (el) {
+               where_unit = k;
+               break;
             }
-          for( int k = 0; k < N; ++k )
-          {
-             if( k == ids.at(where_unit) )
-                continue;
-             if( parity_check.at( row ).at( k ) != 0 ) {
-               //  std::cout << "k: " << k << ", idx: " << idx << ", selected size: " << selected.size() << ", erased: " << erased << std::endl;
-                assert(v.at(k).mStatus == SymbolStatus::Normal);
-                recovered = recovered + v.at( k );
-             }
-          }
+            k++;
+         }
          //  std::cout << "idx: " << idx << ", erased: " << erased << ", good rows: " << good_rows.size() << std::endl;
-          v[ ids.at(where_unit) ] = recovered;
-       }
-       if (bad_strategy || (erased >= D)) {
-         parity_check = mHsys; // Потенциально неудачное восстановление стертых символов: 
-         // рабочую копию обновляем исходной проверочной матрицей.
+          v[ ids.at(where_unit) ] = free_column.at(row);
        }
        while (v.size() > K)
           v.pop_back();
@@ -551,7 +565,7 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
     /**
      * Сделанные во время формирования систематической матрицы перестановки столбцов. 
      */
-    std::vector<std::pair<int, int>> mSwaps;
+    Swaps< int > mSwaps;
  
     /**
      * Проверочная матрица кода (несистематическая).
@@ -564,14 +578,14 @@ void SimplifyManyOfPass(Matrix<int>& parity_check, Matrix<int>& selected, int sw
     Matrix< int > mHsys;
 
     /**
-     * Рабочая копия проверочной матрицы (систематической).
-     */
-    Matrix< int > mWorkH;
-
-    /**
      * Выборочная матрица, соответствующая столбцам со стираниями.
      */
     Matrix< int > mErasureSubmatrix;
+
+    /**
+     * Столбец свободных членов.
+     */
+    std::vector<CodeElement<T, M>> mFreeColumn;
  };
  
  template <typename T, int M>
