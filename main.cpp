@@ -8,7 +8,7 @@ static void TestHamming()
    using u8 = uint8_t;  // Тип внутреннего символа. В данном случае - байт.
    constexpr int R = 5; // Количество проверочных кодовых символов.
    constexpr int M = 4; // Количество внутренних символов на один кодовый символ (векторность).
-   HammingExtended< R, M, u8 > code;
+   HammingExtended< u8, R, M > code;
    code.SwitchToSystematic(true); // Cистематический код.
    // code.SwitchToSystematic(false); // Несистематический код.
    std::cout << "K: " << code.K << ", N: " << code.N << '\n';    
@@ -37,7 +37,8 @@ static void TestHamming()
    v[ 0 ] = { .mStatus = SymbolStatus::Erased, .mSymbol = {} };
    // Декодирование (восстановление стертых символов).
    int erased;
-   const auto decode_is_ok = code.Decode( v, erased );
+   [[maybe_unused]] int was_changed_strategy;
+   const auto decode_is_ok = code.Decode( v, erased, was_changed_strategy );
    const bool recover_is_ok = v == a;
    show_codeword(v, code.K, "Decoded symbols:");  
    std::cout << "Decode is : " << (decode_is_ok ? "Ok\n" : "Failed\n");
