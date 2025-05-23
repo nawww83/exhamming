@@ -238,90 +238,50 @@
  }
 
  /**
-  * Упрощает проверочную матрицу parity_check, чтобы решить СЛАУ относительно неизвестных, 
-  * которые соответствуют столбцам selected из проверочной матрицы.
-  * O(R^2) * E, где E - количество стертых символов.
+  * Подготавливает методом Гаусса матрицу и столбец свободных членов к решению обратным ходом.
+  * @param free_column - столбец свободных членов, dim(free_column) = (r x 1).
+  * @param selected - прямоугольная матрица, dim(selected) = (r x e).
+  * Сложность O(r * e^2).
   */
-template< typename T, int M >
-void SimplifyManyOfPass(std::vector< CodeElement<T, M> >& free_column, Matrix<int>& selected, int swap_direction) {
-   [[maybe_unused]] int counter = 0;
+ template< typename T, int M >
+ void Gauss(CodeWord<T, M>& free_column, Matrix<int>& selected) {
    const int R = free_column.size();
    assert(R > 0);
    assert(!selected.empty());
    const int erased = selected.at(0).size();
    assert(erased > 0);
-   Vector< int > row( erased );
-   Vector< int > weights( R);
-   // Проход "сверху вниз".
-   auto up_down = [&]() -> bool {
-      bool no_modifications = true;
-      for( int i = 0; i < R; ++i )
-      {
-         int w = 0;
-         for( int k = 0; k < erased; ++k )
-            w += selected.at( i ).at( k ) != 0; // Вес оригинального слова.
-         weights[i] = w;
-         for( int j = i+1; j < R; ++j )
-         {
-            int weight = 0;
-            for( int k = 0; k < erased; ++k )
-            {
-               row[ k ] = selected.at( i ).at( k ) ^ selected.at( j ).at( k );
-               weight += row[ k ] != 0;
-            }
-            if( weight < weights.at(i) ) {
-               no_modifications = false;
-               selected[ i ] = row;
-               weights[i] = weight;
-               free_column[ i ] = free_column.at(i) + free_column.at( j );
+   for( int k = 0; k < erased; ++k ) {
+      int where_unit = -1;
+      for( int i = k; i < R; ++i ) {
+         const bool is_not_zero = (selected.at(i).at(k) != 0);
+         if (is_not_zero) {
+            where_unit = i;
+            break;
+         }
+      }
+      if (where_unit == -1)
+         continue;
+      if (where_unit > k) {
+         free_column[ k ] = free_column.at(k) + free_column.at( where_unit );
+         for( int k1 = 0; k1 < erased; ++k1 ) {
+            selected[k][k1] ^= selected.at( where_unit ).at( k1 );
+         }
+      }
+      // Обнуляем до конца: при этом метод гарантированно за один проход выдает разрешимую 
+      // матрицу (если исходная СЛАУ имеет решение).
+      // Матрица разрешимая - значит все элементы главной диагонали квадратной подматрицы ненулевые.
+      // При такой стратегии все элементы ниже квадратной подматрицы равны нулю.
+      for( int i = k + 1; i < R; ++i ) {
+         const bool is_not_zero = (selected.at(i).at(k) != 0);
+         if (is_not_zero) {
+            free_column[ i ] = free_column.at(i) + free_column.at( k );
+            for( int k1 = 0; k1 < erased; ++k1 ) {
+               selected[i][k1] ^= selected.at( k ).at( k1 );
             }
          }
       }
-      return no_modifications;
-   };
-   // Проход "снизу вверх".
-   auto down_up = [&]() -> bool {
-      bool no_modifications = true;
-      for( int i = R-1; i >= 0; --i )
-      {
-         int w = 0;
-         for( int k = 0; k < erased; ++k )
-            w += selected.at( i ).at( k ) != 0; // Вес оригинального слова.
-         weights[i] = w;
-         for( int j = i-1; j >= 0; --j )
-         {
-            int weight = 0;
-            for( int k = 0; k < erased; ++k )
-            {
-               row[ k ] = selected.at( i ).at( k ) ^ selected.at( j ).at( k );
-               weight += row[ k ] != 0;
-            }
-            if( weight < weights.at(i) ) {
-               no_modifications = false;
-               selected[ i ] = row;
-               weights[i] = weight;
-               free_column[ i ] = free_column.at(i) + free_column.at( j );
-            }
-         }
-      }
-      return no_modifications;
-   };
-   for (;;) { // Раунды: итерации.
-      counter++;
-      bool no_modifications_1;
-      bool no_modifications_2;
-      // std::cout << "Counter " << counter << std::endl;
-      if (swap_direction == 0) {
-         no_modifications_1 = up_down();
-         no_modifications_2 = down_up();
-      } else {
-         no_modifications_2 = down_up();
-         no_modifications_1 = up_down();
-      }
-      if (no_modifications_1 && no_modifications_2)
-         break;
    }
-}
+ }
 
  template <typename T>
  inline constexpr T power2( int x )
@@ -486,61 +446,27 @@ void SimplifyManyOfPass(std::vector< CodeElement<T, M> >& free_column, Matrix<in
          }
        };
        select_erasure_submatrix(ids);
-       // Упрощаем подматрицу: минимизируем количество единиц в каждой строке.
-       // Параллельно модифицируем столбец свободных членов.
-       auto free_column = mFreeColumn;
-       SimplifyManyOfPass(free_column, mErasureSubmatrix, 0);
-       // Ищем базис по стертым столбцам - строки с единственной единицей - "хорошие" строки.
-       std::vector< int > good_rows;
-       auto select_good_rows = [this, &good_rows](int erased) -> int {
-         int bad_strategy = 0;
-         good_rows.clear();
-         for( int j = 0; j < R; ++j )
-         {
-            if (good_rows.size() == erased)
-               break;
-            int weight = 0;
-            for( int k = 0; k < erased; ++k ) {
-               weight += mErasureSubmatrix.at( j ).at( k ) != 0;
-            }
-            if( weight == 1 ) {
-               good_rows.push_back( j );
-            }
-            if (weight > 1) {
-               bad_strategy = 1; // Выбрана неудачная стратегия упрощения матрицы.
+      auto free_column = mFreeColumn;
+      // show_codeword(free_column, -1, "free column:");
+      // show_matrix(mErasureSubmatrix, "Erasure matrix:");
+      Gauss(free_column, mErasureSubmatrix);
+      // show_codeword(free_column, -1, "free column after Gauss method:");
+      // show_matrix(mErasureSubmatrix, "Erasure matrix after Gauss method:");
+      // Восстанавливаем стертые символы: решение СЛАУ обратным ходом.
+      for( int k = erased - 1; k >= 0; --k ) {
+         // std::cout << " k = " << k << std::endl;
+         const int idx_v = ids.at(k);
+         if (mErasureSubmatrix.at(k).at(k) != 0) {
+            v[ idx_v ] = free_column.at(k);
+            // std::cout << " v = " << std::endl;
+         }
+         for (int j = 0; j < erased - 1 - k; j++) {
+            if (mErasureSubmatrix.at(k).at(k + j + 1) != 0) {
+               v[idx_v] = v.at(idx_v) + v.at(ids.at(k + j + 1));
+               // std::cout << " v += " << std::endl;
             }
          }
-         return bad_strategy;
-       };
-       int bad_strategy = select_good_rows(erased);
-       was_changed_strategy = 0;
-       if (bad_strategy) { // Обычно для больших стираний: около D-1 и выше.
-         free_column = mFreeColumn;
-         select_erasure_submatrix(ids);
-         was_changed_strategy = 1;
-         SimplifyManyOfPass(free_column, mErasureSubmatrix, 1); // Пробуем инвертированную стратегию.
-         bad_strategy = select_good_rows(erased);
-         // std::cout << "Change direct. Strategy after is " << (bad_strategy ? "bad" : "good") << ", erased: " << erased << std::endl;
-       }
-       // Восстанавливаем стертые символы.
-       for( const auto& row : good_rows )
-       {
-         if (bad_strategy) { // Не нашли стратегию: считаем, что система однозначно не разрешима.
-            break;
-         }
-         // std::cout << "i: " << i << ", M: " << M << ", v size: " << v.size() << std::endl;
-          CodeElement< T, M > recovered{ .mStatus = SymbolStatus::Normal, .mSymbol = {} };
-          int where_unit = -1;
-         for (int k = 0; const auto& el : mErasureSubmatrix.at( row )) {
-            if (el) {
-               where_unit = k;
-               break;
-            }
-            k++;
-         }
-         //  std::cout << "idx: " << idx << ", erased: " << erased << ", good rows: " << good_rows.size() << std::endl;
-          v[ ids.at(where_unit) ] = free_column.at(row);
-       }
+      }
        while (v.size() > K)
           v.pop_back();
        return true;
@@ -585,7 +511,7 @@ void SimplifyManyOfPass(std::vector< CodeElement<T, M> >& free_column, Matrix<in
     /**
      * Столбец свободных членов.
      */
-    std::vector<CodeElement<T, M>> mFreeColumn;
+    CodeWord<T, M> mFreeColumn;
  };
  
  template <typename T, int M>
